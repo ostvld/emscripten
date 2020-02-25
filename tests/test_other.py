@@ -9622,8 +9622,6 @@ int main () {
                            '-s', 'MODULARIZE=1']
     hello_webgl2_sources = hello_webgl_sources + ['-s', 'MAX_WEBGL_VERSION=2']
 
-    success = True
-
     def print_percent(actual, expected):
       if actual == expected:
         return ''
