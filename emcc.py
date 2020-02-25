@@ -994,7 +994,6 @@ There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR P
                     '-current_version', '-I', '-L', '-include-pch'):
           continue # ignore this gcc-style argument
 
-
       if not arg.startswith('-'):
         if not os.path.exists(arg):
           exit_with_error('%s: No such file or directory ("%s" was expected to be an input file, based on the commandline arguments provided)', arg, arg)
@@ -1011,6 +1010,10 @@ There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR P
             input_files.append((i, arg))
             has_header_inputs = True
           elif file_suffix.endswith(ASSEMBLY_ENDINGS) or shared.Building.is_bitcode(arg) or shared.Building.is_ar(arg):
+            input_files.append((i, arg))
+          elif shared.Building.is_wasm(arg):
+            if not shared.Settings.WASM_BACKEND:
+              exit_with_error('fastcomp is not compatible with wasm object files:' + arg)
             input_files.append((i, arg))
           elif file_suffix.endswith(STATICLIB_ENDINGS + DYNAMICLIB_ENDINGS):
             # if it's not, and it's a library, just add it to libs to find later
@@ -1151,7 +1154,7 @@ There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR P
 
     input_files = filter_out_dynamic_libs(input_files)
 
-    if len(input_files) == 0:
+    if not input_files and not libs:
       exit_with_error('no input files')
 
     # Note the exports the user requested

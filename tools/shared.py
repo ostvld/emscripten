@@ -1880,10 +1880,7 @@ class Building(object):
     resolved_symbols = set()
     # Paths of already included object files from archives.
     added_contents = set()
-    has_ar = False
-    for f in files:
-      if not f.startswith('-'):
-        has_ar = has_ar or Building.is_ar(Building.make_paths_absolute(f))
+    has_ar = any(not f.startswith('-') for f in files)
 
     # If we have only one archive or the force_archive_contents flag is set,
     # then we will add every object file we see, regardless of whether it
@@ -1899,12 +1896,7 @@ class Building(object):
       # Check if the object was valid according to llvm-nm. It also accepts
       # native object files.
       if not new_symbols.is_valid_for_nm():
-        warning('object %s is not valid according to llvm-nm, cannot link', f)
-        return False
-      # Check the object is valid for us, and not a native object file.
-      if not Building.is_bitcode(f):
-        warning('object %s is not a valid object file for emscripten, cannot link', f)
-        return False
+        exit_with_error('object %s is not valid according to llvm-nm, cannot link', f)
       provided = new_symbols.defs.union(new_symbols.commons)
       do_add = force_add or not unresolved_symbols.isdisjoint(provided)
       if do_add:
@@ -1972,17 +1964,7 @@ class Building(object):
           # Command line flags should already be vetted by the time this method
           # is called, so this is an internal error
           assert False, 'unsupported link flag: ' + f
-      elif not Building.is_ar(absolute_path_f):
-        if Building.is_bitcode(absolute_path_f):
-          if has_ar:
-            consider_object(absolute_path_f, force_add=True)
-          else:
-            # If there are no archives then we can simply link all valid object
-            # files and skip the symbol table stuff.
-            actual_files.append(f)
-        else:
-          logging.debug('ignoring non-bitcode file for link: %s' % absolute_path_f)
-      else:
+      elif Building.is_ar(absolute_path_f):
         # Extract object files from ar archives, and link according to gnu ld semantics
         # (link in an entire .o from the archive if it supplies symbols still unresolved)
         consider_archive(absolute_path_f, in_whole_archive or force_add_all)
@@ -1990,6 +1972,13 @@ class Building(object):
         # so we can loop back around later.
         if current_archive_group is not None:
           current_archive_group.append(absolute_path_f)
+      else:
+        if has_ar:
+          consider_object(absolute_path_f, force_add=True)
+        else:
+          # If there are no archives then we can simply link all valid object
+          # files and skip the symbol table stuff.
+          actual_files.append(f)
 
     # We have to consider the possibility that --start-group was used without a matching
     # --end-group; GNU ld permits this behavior and implicitly treats the end of the
@@ -2050,16 +2039,8 @@ class Building(object):
     cmd = [LLVM_OPT] + inputs + opts + ['-o', target]
     cmd = Building.get_command_with_possible_response_file(cmd)
     print_compiler_stage(cmd)
-    try:
-      run_process(cmd, stdout=PIPE)
-      assert os.path.exists(target), 'llvm optimizer emitted no output.'
-    except subprocess.CalledProcessError as e:
-      for i in inputs:
-        if not os.path.exists(i):
-          warning('Note: Input file "' + i + '" did not exist.')
-        elif not Building.is_bitcode(i):
-          warning('Note: Input file "' + i + '" exists but was not an LLVM bitcode file suitable for Emscripten. Perhaps accidentally mixing native built object files with Emscripten?')
-      exit_with_error('Failed to run llvm optimizations: ' + e.output)
+    check_call(cmd)
+    assert os.path.exists(target), 'llvm optimizer emitted no output.'
     if not out:
       shutil.move(filename + '.opt.bc', filename)
     return target

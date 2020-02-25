@@ -281,7 +281,7 @@ There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR P
     # emcc src.cpp -c    and   emcc src.cpp -o src.[o|bc] ==> should give a .bc file
     #      regression check: -o js should create "js", with bitcode content
     for args in [['-c'], ['-o', 'src.o'], ['-o', 'src.bc'], ['-o', 'src.so'], ['-o', 'js'], ['-O1', '-c', '-o', '/dev/null'], ['-O1', '-o', '/dev/null']]:
-      print('-c stuff', args)
+      print('args:', args)
       if '/dev/null' in args and WINDOWS:
         print('skip because windows')
         continue
@@ -292,12 +292,12 @@ There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR P
         print('(no output)')
         continue
       syms = Building.llvm_nm(target)
-      assert 'main' in syms.defs
+      self.assertContained('main', syms.defs)
       if self.is_wasm_backend():
         # wasm backend will also have '__original_main' or such
-        assert len(syms.defs) == 2
+        self.assertEqual(len(syms.defs), 2)
       else:
-        assert len(syms.defs) == 1
+        self.assertEqual(len(syms.defs), 1)
       if target == 'js': # make sure emcc can recognize the target as a bitcode file
         shutil.move(target, target + '.bc')
         target += '.bc'
@@ -1043,7 +1043,7 @@ int main() {
 
   @parameterized({
     'expand_symlinks': [[]],
-    'no-canonical-prefixes': [['-no-canonical-prefixes']],
+    'no_canonical_prefixes': [['-no-canonical-prefixes']],
   })
   @no_windows('Windows does not support symlinks')
   def test_symlink_points_to_bad_suffix(self, flags):
@@ -1056,7 +1056,7 @@ int main() {
 
   @parameterized({
     'expand_symlinks': ([], True),
-    'no-canonical-prefixes': (['-no-canonical-prefixes'], False),
+    'no_canonical_prefixes': (['-no-canonical-prefixes'], False),
   })
   @no_windows('Windows does not support symlinks')
   def test_symlink_has_bad_suffix(self, flags, expect_success):
@@ -1066,10 +1066,13 @@ int main() {
     due to the inappropriate file suffix on foobar.xxx."""
     create_test_file('foobar.c', 'int main(){ return 0; }')
     os.symlink('foobar.c', 'foobar.xxx')
-    proc = run_process([PYTHON, EMCC, 'foobar.xxx', '-o', 'foobar.bc'] + flags, check=expect_success, stderr=PIPE)
+    proc = run_process([PYTHON, EMCC, 'foobar.xxx', '-o', 'foobar.js'] + flags, check=expect_success, stderr=PIPE)
     if not expect_success:
       self.assertNotEqual(proc.returncode, 0)
-      self.assertContained("unknown suffix", proc.stderr)
+      if self.is_wasm_backend():
+        self.assertContained('error: unknown file type: foobar.xxx', proc.stderr)
+      else:
+        self.assertContained('foobar.xxx is not valid according to llvm-nm, cannot link', proc.stderr)
 
   def test_multiply_defined_libsymbols(self):
     lib_name = 'libA.c'
@@ -7741,10 +7744,10 @@ int main() {
 }
     ''')
     run_process([PYTHON, EMCC, '-Wall', '-std=c++14', '-x', 'c++', 'src_tmp_fixed_lang'])
-    self.assertContained("Test_source_fixed_lang_hello", run_js('a.out.js'))
+    self.assertContained('Test_source_fixed_lang_hello', run_js('a.out.js'))
 
     stderr = self.expect_fail([PYTHON, EMCC, '-Wall', '-std=c++14', 'src_tmp_fixed_lang'])
-    self.assertContained("Input file has an unknown suffix, don't know what to do with it!", stderr)
+    self.assertContained('error: unknown file type: src_tmp_fixed_lang', stderr)
 
   def test_disable_inlining(self):
     create_test_file('test.c', r'''
@@ -8586,7 +8589,10 @@ int main() {
   def test_native_link_error_message(self):
     run_process([CLANG_CC, '-c', path_from_root('tests', 'hello_123.c'), '-o', 'hello_123.o'])
     err = self.expect_fail([PYTHON, EMCC, 'hello_123.o', '-o', 'hello_123.js'])
-    self.assertContained('hello_123.o is not a valid input', err)
+    if self.is_wasm_backend():
+      self.assertContained('wasm-ld: error: unknown file type: hello_123.o', err)
+    else:
+      self.assertContained('error loading file', err)
 
   # Tests that we should give a clear error on TOTAL_MEMORY not being enough for static initialization + stack
   def test_clear_error_on_massive_static_data(self):
@@ -10280,14 +10286,13 @@ Module.arguments has been replaced with plain arguments_
     self.assertContained('success', run_js('a.out.js'))
 
   def test_werror_python(self):
-    create_test_file('not_object.bc', 'some text')
     run_process([PYTHON, EMCC, '-c', '-o', 'hello.o', path_from_root('tests', 'hello_world.c')])
-    cmd = [PYTHON, EMCC, 'hello.o', 'not_object.bc', '-o', 'a.o']
+    cmd = [PYTHON, EMCC, 'hello.o', '-o', 'a.js', '-g', '--closure', '1']
     stderr = run_process(cmd, stderr=PIPE).stderr
-    self.assertContained('WARNING: not_object.bc is not a valid input file', stderr)
+    self.assertContained('WARNING: disabling closure because debug info was requested', stderr)
     # Same thing with -Werror should fail
     stderr = self.expect_fail(cmd + ['-Werror'])
-    self.assertContained('WARNING: not_object.bc is not a valid input file', stderr)
+    self.assertContained('WARNING: disabling closure because debug info was requested', stderr)
     self.assertContained('ERROR: treating warnings as errors (-Werror)', stderr)
 
   def test_emranlib(self):
