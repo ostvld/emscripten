@@ -17,6 +17,9 @@ See docs/process.md for how version tagging works.
 
 Current Trunk
 -------------
+- If input files don't have a known extension assume they are object files
+  (linker inputs) rather then source files.  This matches gcc/clang behaviour.
+  See #10560.
 - Updated of libc++abi and libc++ to llvm 9.0.0 (#10510)
 - Refactor syscall interface: Syscalls are no longer variadic (except those
   that are inherently such as open) and no longer take the syscall number as
