@@ -1895,8 +1895,10 @@ class Building(object):
       new_symbols = Building.llvm_nm(f)
       # Check if the object was valid according to llvm-nm. It also accepts
       # native object files.
-      if not new_symbols.is_valid_for_nm():
-        exit_with_error('object %s is not valid according to llvm-nm, cannot link', f)
+      if not new_symbols.is_valid_for_nm() or not Building.is_bitcode(f):
+        # Match error message reported by wasm-ld when invliad objects (or
+        # non-bitcode objects) are passed.
+        exit_with_error('unknown file type: %s', f)
       provided = new_symbols.defs.union(new_symbols.commons)
       do_add = force_add or not unresolved_symbols.isdisjoint(provided)
       if do_add:
@@ -1974,7 +1976,7 @@ class Building(object):
           current_archive_group.append(absolute_path_f)
       else:
         if has_ar:
-          consider_object(absolute_path_f, force_add=True)
+          consider_object(f, force_add=True)
         else:
           # If there are no archives then we can simply link all valid object
           # files and skip the symbol table stuff.
@@ -2071,17 +2073,21 @@ class Building(object):
       if ':' in line:
         continue
       parts = [seg for seg in line.split(' ') if len(seg)]
-      # pnacl-nm will print zero offsets for bitcode, and newer llvm-nm will print present symbols as  -------- T name
+      # pnacl-nm will print zero offsets for bitcode, and newer llvm-nm will print present symbols
+      # as  -------- T name
       if len(parts) == 3 and parts[0] == "--------" or re.match(r'^[\da-f]{8}$', parts[0]):
         parts.pop(0)
-      if len(parts) == 2:  # ignore lines with absolute offsets, these are not bitcode anyhow (e.g. |00000630 t d_source_name|)
+      if len(parts) == 2:
+        # ignore lines with absolute offsets, these are not bitcode anyhow
+        # e.g. |00000630 t d_source_name|
         status, symbol = parts
         if status == 'U':
           undefs.append(symbol)
         elif status == 'C':
           commons.append(symbol)
         elif (not include_internal and status == status.upper()) or \
-             (include_internal and status in ['W', 't', 'T', 'd', 'D']): # FIXME: using WTD in the previous line fails due to llvm-nm behavior on macOS,
+             (include_internal and status in ['W', 't', 'T', 'd', 'D']):
+          # FIXME: using WTD in the previous line fails due to llvm-nm behavior on macOS,
           #        so for now we assume all uppercase are normally defined external symbols
           defs.append(symbol)
     return ObjectFileInfo(0, None, set(defs), set(undefs), set(commons))

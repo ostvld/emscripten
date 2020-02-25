@@ -1069,10 +1069,7 @@ int main() {
     proc = run_process([PYTHON, EMCC, 'foobar.xxx', '-o', 'foobar.js'] + flags, check=expect_success, stderr=PIPE)
     if not expect_success:
       self.assertNotEqual(proc.returncode, 0)
-      if self.is_wasm_backend():
-        self.assertContained('error: unknown file type: foobar.xxx', proc.stderr)
-      else:
-        self.assertContained('foobar.xxx is not valid according to llvm-nm, cannot link', proc.stderr)
+      self.assertContained('unknown file type: foobar.xxx', proc.stderr)
 
   def test_multiply_defined_libsymbols(self):
     lib_name = 'libA.c'
@@ -1297,17 +1294,16 @@ int f() {
 
     self.assertContained('result: 1', run_js('a.out.js'))
 
-  @no_wasm_backend('archive contents handling differ with lld')
   def test_dot_a_all_contents_invalid(self):
-    # check that we warn if an object file in a .a is not valid bitcode.
+    # check that we error if an object file in a .a is not valid bitcode.
     # do not silently ignore native object files, which may have been
     # built by mistake
-    create_test_file('side.cpp', r'int side() { return 5; }')
-    create_test_file('main.cpp', r'extern int side(); int main() { return side(); }')
-    run_process([CLANG, 'side.cpp', '-c', '-o', 'native.o'])
-    run_process([PYTHON, EMAR, 'crs', 'foo.a', 'native.o'])
-    proc = run_process([PYTHON, EMCC, 'main.cpp', 'foo.a', '-s', 'ERROR_ON_UNDEFINED_SYMBOLS=0'], stderr=PIPE)
-    self.assertContained('is not a valid object file for emscripten, cannot link', proc.stderr)
+    create_test_file('native.cpp', 'int native() { return 5; }')
+    create_test_file('main.cpp', 'extern int native(); int main() { return native(); }')
+    run_process([CLANG, 'native.cpp', '-c', '-o', 'native.o'])
+    run_process([PYTHON, EMAR, 'crs', 'libfoo.a', 'native.o'])
+    stderr = self.expect_fail([PYTHON, EMCC, 'main.cpp', 'libfoo.a'])
+    self.assertContained('unknown file type', stderr)
 
   def test_export_all(self):
     lib = r'''
@@ -7747,7 +7743,7 @@ int main() {
     self.assertContained('Test_source_fixed_lang_hello', run_js('a.out.js'))
 
     stderr = self.expect_fail([PYTHON, EMCC, '-Wall', '-std=c++14', 'src_tmp_fixed_lang'])
-    self.assertContained('error: unknown file type: src_tmp_fixed_lang', stderr)
+    self.assertContained('unknown file type: src_tmp_fixed_lang', stderr)
 
   def test_disable_inlining(self):
     create_test_file('test.c', r'''
@@ -8590,7 +8586,7 @@ int main() {
     run_process([CLANG_CC, '-c', path_from_root('tests', 'hello_123.c'), '-o', 'hello_123.o'])
     err = self.expect_fail([PYTHON, EMCC, 'hello_123.o', '-o', 'hello_123.js'])
     if self.is_wasm_backend():
-      self.assertContained('wasm-ld: error: unknown file type: hello_123.o', err)
+      self.assertContained('unknown file type: hello_123.o', err)
     else:
       self.assertContained('error loading file', err)
 
